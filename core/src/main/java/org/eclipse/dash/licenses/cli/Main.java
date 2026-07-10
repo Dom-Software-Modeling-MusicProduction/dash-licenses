@@ -149,6 +149,13 @@ public class Main {
 		});
 
 		collectors.forEach(IResultsCollector::close);
+		String sbomOutputPath = settings.getSbomOutputFilePath();
+		if (sbomOutputPath != null) {
+			System.out.println("[Main] SBOM output requested: " + sbomOutputPath);
+			// TODO: wire up SbomFileWriter once the write methods are implemented
+			// SbomFileWriter writer = new SbomFileWriter(inputFile, new File(sbomOutputPath));
+			// writer.write(licenseData);
+		}
 
 		System.exit(Math.min(primaryCollector.getStatus(), INTERNAL_ERROR - 1));
 	}

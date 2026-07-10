@@ -13,6 +13,7 @@ import java.util.List;
 //import org.apache.commons.codec.language.bm.Lang;
 import org.cyclonedx.exception.ParseException;
 import org.cyclonedx.parsers.JsonParser;
+import org.cyclonedx.parsers.Parser;
 import org.cyclonedx.parsers.XmlParser;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
@@ -23,12 +24,20 @@ import org.eclipse.dash.licenses.PackageUrlIdParser;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.jena.rdf.model.Model;
-import org.apache.jena.rdf.model.ModelFactory;
-import org.apache.jena.rdf.model.Property;
-import org.apache.jena.rdf.model.ResIterator;
-import org.apache.jena.rdf.model.StmtIterator;
+// import org.apache.jena.rdf.model.Model;
+// import org.apache.jena.rdf.model.ModelFactory;
+// import org.apache.jena.rdf.model.Property;
+// import org.apache.jena.rdf.model.ResIterator;
+// import org.apache.jena.rdf.model.StmtIterator;
 //import org.apache.jena.riot.RDFDataMgr;
+
+import java.util.stream.Collectors;
+import org.spdx.spdxRdfStore.RdfStore;
+import org.spdx.library.SpdxModelFactory;
+import org.spdx.library.model.v2.SpdxConstantsCompatV2;
+import org.spdx.library.model.v2.SpdxPackage;
+import org.spdx.library.model.v2.ExternalRef;
+import org.spdx.library.model.v2.enumerations.ReferenceCategory;
 
 
 public class SbomFileReader implements IDependencyListReader {
@@ -122,59 +131,41 @@ public class SbomFileReader implements IDependencyListReader {
    private List<IContentId> parseCycloneDxJson(File file) {
 
         var parser = new JsonParser();
-        try {
-            var sbom = parser.parse(file);
-            //return sbom.getDependencies().stream().map(each->new PackageUrlIdParser().parseId(each.getRef())).collect(Collectors.toList());
-            List<IContentId> results = new ArrayList<>();
-            if (sbom.getMetadata() != null && sbom.getMetadata().getComponent() != null){
-                IContentId id = PURL_PARSER.parseId(sbom.getMetadata().getComponent().getPurl());
-                if (id != null){
+        return ParseCycloneDx(file, parser);
+    }
+
+   private List<IContentId> ParseCycloneDx(File file, Parser parser) {
+    try {
+        var sbom = parser.parse(file);
+        //return sbom.getDependencies().stream().map(each->new PackageUrlIdParser().parseId(each.getRef())).collect(Collectors.toList());
+        List<IContentId> results = new ArrayList<>();
+        if (sbom.getMetadata() != null && sbom.getMetadata().getComponent() != null){
+            IContentId id = PURL_PARSER.parseId(sbom.getMetadata().getComponent().getPurl());
+            if (id != null){
+                results.add(id);
+            }
+        }
+        if (sbom.getComponents() != null){
+            for (var component : sbom.getComponents()) {
+                IContentId id = PURL_PARSER.parseId(component.getPurl());
+                if (id!= null){
                     results.add(id);
                 }
             }
-            if (sbom.getComponents() != null){
-                for (var component : sbom.getComponents()) {
-                    IContentId id = PURL_PARSER.parseId(component.getPurl());
-                    if (id!= null){
-                        results.add(id);
-                    }
-                }
-            }
-            
-            return results;
         }
-        catch (ParseException e) {
-            e.printStackTrace();
-        }
-
-        return new ArrayList<>();
+        
+        return results;
     }
+    catch (ParseException e) {
+        e.printStackTrace();
+    }
+
+    return new ArrayList<>();
+   }
 
     private List<IContentId> parseCycloneDxXml(File file) {
         var parser = new XmlParser();
-        try {
-            var sbom = parser.parse(file);
-            List<IContentId> results = new ArrayList<>();
-
-            // Root artifact lives in metadata
-            if (sbom.getMetadata() != null && sbom.getMetadata().getComponent() != null) {
-                IContentId id = PURL_PARSER.parseId(sbom.getMetadata().getComponent().getPurl());
-                if (id != null) results.add(id);
-            }
-            if (sbom.getComponents() != null){
-                for (var component : sbom.getComponents()) {  // components not dependencies
-                    IContentId id = PURL_PARSER.parseId(component.getPurl());  // getPurl() not getRef()
-                    if (id != null){
-                        results.add(id);
-                    }
-                }
-            }
-            
-            return results;
-        } catch (ParseException e) {
-            e.printStackTrace();
-        }
-        return new ArrayList<>();
+        return ParseCycloneDx(file, parser);
     }
 
     
@@ -300,73 +291,114 @@ public class SbomFileReader implements IDependencyListReader {
         }
         return new ArrayList<>();
     }
-    private List<IContentId> parseSpdxRdfXml(File file){
+    @SuppressWarnings("unchecked")
+    private List<IContentId> parseSpdxRdfXml(File file) {
         List<IContentId> results = new ArrayList<>();
-        try{
-            //create an empty Jena RDF graph, often referred to as a "model" hence the name
-            Model model = ModelFactory.createDefaultModel();
-            model.read(file.getPath(), "RDF/XML");
-            // SPDX RDF uses this predicate for external references
+        try {
+            // RdfStore from the SPDX library replaces all the manual Jena triple-walking.
+            // loadModelFromFile parses the RDF/XML and returns the document URI.
+            RdfStore rdfStore = new RdfStore();
+            String documentUri = rdfStore.loadModelFromFile(file.getPath(), false);
 
-            //locate and assign properties externalRef, referenceCategory, referenceType and
-            //referenceLocator for purl extraction
+            // Pull every SPDX package out of the parsed document as typed objects
+            // instead of iterating raw RDF subjects/statements.
+            List<SpdxPackage> packages = (List<SpdxPackage>) SpdxModelFactory
+                    .getSpdxObjects(rdfStore, null, SpdxConstantsCompatV2.CLASS_SPDX_PACKAGE, documentUri, null)
+                    .collect(Collectors.toList());
 
-            //SPDX's definitions of these properties
-            Property externalRefProp = model.createProperty( 
-                "https://spdx.org/rdf/terms#externalRef");
-            Property refCategoryProp = model.createProperty(
-                "https://spdx.org/rdf/terms#referenceCategory");
-            Property refTypeProp = model.createProperty(
-                "https://spdx.org/rdf/terms#referenceType");
-            Property refLocatorProp = model.createProperty(
-                "https://spdx.org/rdf/terms#referenceLocator");
-            
-            //searches the graph for a subject that has at least one externalRef relationship.
-            //ResIterator is the iterator for resources in the library
-            ResIterator packages = model.listSubjectsWithProperty(externalRefProp);
-            //hasNext() just checks if the next element exists or not
-
-            //packages is a list of every package in the RDF file that has at least one 
-            //external reference (can be multiple)
-            while (packages.hasNext()) {
-                //grabs the next package from the list and store it in pkg. The whole 
-                //Resource name is used to prevent naming conflicts with 
-                //jakarta.annotation.Resource
-                org.apache.jena.rdf.model.Resource pkg = packages.nextResource();
-
-                //asks this package to give all externalRerf relationships. A package can have
-                //many - refs is now a list of all them
-                StmtIterator refs = pkg.listProperties(externalRefProp);
-                //are there more externalRefs for this package? If yes continue. 
-                while (refs.hasNext()) {
-                    //refs.next() get the next external ref triple
-                    //.getObject() grab the third part which is the external ref node itself
-                    //.asResource() cast it so it's properties can be queried and then stored in ref
-                    org.apache.jena.rdf.model.Resource ref = refs.next().getObject().asResource();
-                    //get the category and type from the ref
-                    //e.g. category = "PACKAGE_MANAGER", type = "purl"
-                    String category = ref.getProperty(refCategoryProp).getString();
-                    String type     = ref.getProperty(refTypeProp).getString();
-                    //then skip anything that is not a purl such as CVEs or checksums
-                    //handle both SPDX 2.2 versoin and SPDX 2.3 version of pakcage manager
-                    if ((category.equalsIgnoreCase("PACKAGE-MANAGER") || category.equalsIgnoreCase("PACKAGE_MANAGER"))
-                            && type.equalsIgnoreCase("purl")) {
-                        //get the actual purl
-                        String purl = ref.getProperty(refLocatorProp).getString();
-                        //convert to IContentId
-                        IContentId id = PURL_PARSER.parseId(purl);
-                        if (id != null){
+            for (SpdxPackage pkg : packages) {
+                // getExternalRefs() gives typed ExternalRef objects — no manual property lookups
+                for (ExternalRef ref : pkg.getExternalRefs()) {
+                    // ReferenceCategory is an enum, so the library normalizes the
+                    // SPDX 2.2 ("PACKAGE-MANAGER") vs 2.3 ("PACKAGE_MANAGER") difference for us.
+                    // In SPDX RDF the reference type is the full listed-reference URI
+                    // (e.g. http://spdx.org/rdf/references/purl), not the bare string "purl".
+                    String refTypeUri = ref.getReferenceType().getIndividualURI();
+                    if (ref.getReferenceCategory() == ReferenceCategory.PACKAGE_MANAGER
+                            && (SpdxConstantsCompatV2.SPDX_LISTED_REFERENCE_TYPES_PREFIX + "purl")
+                                    .equalsIgnoreCase(refTypeUri)) {
+                        IContentId id = PURL_PARSER.parseId(ref.getReferenceLocator());
+                        if (id != null) {
                             results.add(id);
-                        } 
+                        }
                     }
                 }
             }
-        } 
-        catch (Exception e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
         return results;
     }
+    // private List<IContentId> parseSpdxRdfXml(File file){
+    //     List<IContentId> results = new ArrayList<>();
+    //     try{
+    //         //create an empty Jena RDF graph, often referred to as a "model" hence the name
+    //         Model model = ModelFactory.createDefaultModel();
+    //         model.read(file.getPath(), "RDF/XML");
+    //         // SPDX RDF uses this predicate for external references
+
+    //         //locate and assign properties externalRef, referenceCategory, referenceType and
+    //         //referenceLocator for purl extraction
+
+    //         //SPDX's definitions of these properties
+    //         Property externalRefProp = model.createProperty( 
+    //             "https://spdx.org/rdf/terms#externalRef");
+    //         Property refCategoryProp = model.createProperty(
+    //             "https://spdx.org/rdf/terms#referenceCategory");
+    //         Property refTypeProp = model.createProperty(
+    //             "https://spdx.org/rdf/terms#referenceType");
+    //         Property refLocatorProp = model.createProperty(
+    //             "https://spdx.org/rdf/terms#referenceLocator");
+            
+    //         //searches the graph for a subject that has at least one externalRef relationship.
+    //         //ResIterator is the iterator for resources in the library
+    //         ResIterator packages = model.listSubjectsWithProperty(externalRefProp);
+    //         //hasNext() just checks if the next element exists or not
+
+    //         //packages is a list of every package in the RDF file that has at least one 
+    //         //external reference (can be multiple)
+    //         while (packages.hasNext()) {
+    //             //grabs the next package from the list and store it in pkg. The whole 
+    //             //Resource name is used to prevent naming conflicts with 
+    //             //jakarta.annotation.Resource
+    //             org.apache.jena.rdf.model.Resource pkg = packages.nextResource();
+
+    //             //asks this package to give all externalRerf relationships. A package can have
+    //             //many - refs is now a list of all them
+    //             StmtIterator refs = pkg.listProperties(externalRefProp);
+    //             //are there more externalRefs for this package? If yes continue. 
+    //             while (refs.hasNext()) {
+    //                 //refs.next() get the next external ref triple
+    //                 //.getObject() grab the third part which is the external ref node itself
+    //                 //.asResource() cast it so it's properties can be queried and then stored in ref
+    //                 org.apache.jena.rdf.model.Resource ref = refs.next().getObject().asResource();
+    //                 //get the category and type from the ref
+    //                 //e.g. category = "PACKAGE_MANAGER", type = "purl"
+    //                 var categoryProp = ref.getProperty(refCategoryProp);
+    //                 var typeProp = ref.getProperty(refTypeProp);
+    //                 if (categoryProp == null || typeProp == null) continue;
+    //                 String category = ref.getProperty(refCategoryProp).getString();
+    //                 String type     = ref.getProperty(refTypeProp).getString();
+    //                 //then skip anything that is not a purl such as CVEs or checksums
+    //                 //handle both SPDX 2.2 versoin and SPDX 2.3 version of pakcage manager
+    //                 if ((category.equalsIgnoreCase("PACKAGE-MANAGER") || category.equalsIgnoreCase("PACKAGE_MANAGER"))
+    //                         && type.equalsIgnoreCase("purl")) {
+    //                     //get the actual purl
+    //                     String purl = ref.getProperty(refLocatorProp).getString();
+    //                     //convert to IContentId
+    //                     IContentId id = PURL_PARSER.parseId(purl);
+    //                     if (id != null){
+    //                         results.add(id);
+    //                     } 
+    //                 }
+    //             }
+    //         }
+    //     } 
+    //     catch (Exception e) {
+    //         e.printStackTrace();
+    //     }
+    //     return results;
+    // }
     
 
 
