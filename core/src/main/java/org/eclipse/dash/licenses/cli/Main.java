@@ -13,7 +13,6 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.FileReader;
-import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -21,9 +20,6 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.eclipse.dash.licenses.IContentId;
 import org.eclipse.dash.licenses.LicenseChecker;
@@ -122,6 +118,17 @@ public class Main {
 			IDependencyListReader reader = null;
 			try {
 				reader = getReader(name);
+				
+				// FIXME This is ugly, but good enough as an incremental step. Find a more elegant solution
+				if (settings.getSbomOutputFilePath() != null && reader instanceof CycloneDXSbomReader2) {
+					var output = new File(settings.getSbomOutputFilePath());
+					if (output.canWrite()) {
+						collectors.add(new CycloneDXSbomWriter(((CycloneDXSbomReader2)reader).getSbom(), output));
+					} else {
+						System.out.println("Can't write to " + output.getPath());
+						System.exit(INTERNAL_ERROR);
+					}
+				}
 			} catch (FileNotFoundException e) {
 				System.out.println(String.format("The file \"%s\" does not exist.", name));
 				CommandLineSettings.printUsage(System.out);
@@ -185,34 +192,9 @@ public class Main {
 			return new YarnLockFileReader(new FileReader(file));
 		}
 
-		if (isSbomFile(file)) {
-			return new SbomFileReader(file);
-		}
+		var reader = CycloneDXSbomReader2.forFile(file);
+		if (reader != null) return reader;
 
 		return new FlatFileReader(new FileReader(file));
-	}
-	
-	private boolean isSbomFile(File file) {
-		String name = file.getName().toLowerCase();
-		// Added rdf format, yaml format, and spdx format
-		if (name.endsWith(".xml") || name.endsWith(".spdx")) {
-			return true;
-		}
-		
-		if (name.endsWith(".rdf")) {
-			return true;
-		}
-		if (name.endsWith(".yaml") || name.endsWith(".yml")) {
-			return true;
-		}
-		if (name.endsWith(".json")) {
-			try {
-				JsonNode root = new ObjectMapper().readTree(file);
-				return root.has("bomFormat") || root.has("spdxVersion") || root.has("specVersion");
-			} catch (IOException e) {
-				return false;
-			}
-		}
-		return false;
 	}
 }
