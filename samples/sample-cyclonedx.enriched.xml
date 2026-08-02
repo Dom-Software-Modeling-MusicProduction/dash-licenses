@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bom version="1" xmlns="http://cyclonedx.org/schema/bom/1.4">
+  <metadata>
+    <timestamp>2026-08-02T01:47:33Z</timestamp>
+    <component type="application">
+      <name>sample-app</name>
+      <version>1.0.0</version>
+    </component>
+  </metadata>
+  <components>
+    <component type="library">
+      <name>slf4j-api</name>
+      <version>1.7.32</version>
+      <licenses>
+        <license>
+          <id>MIT</id>
+        </license>
+      </licenses>
+      <purl>pkg:maven/org.slf4j/slf4j-api@1.7.32</purl>
+      <properties>
+        <property name="eclipse.dash.status">approved</property>
+        <property name="eclipse.dash.url">https://dev.eclipse.org/ipzilla/show_bug.cgi?id=13368</property>
+      </properties>
+    </component>
+    <component type="library">
+      <name>commons-lang3</name>
+      <version>3.12.0</version>
+      <licenses>
+        <license>
+          <id>Apache-2.0</id>
+        </license>
+      </licenses>
+      <purl>pkg:maven/org.apache.commons/commons-lang3@3.12.0</purl>
+      <properties>
+        <property name="eclipse.dash.status">approved</property>
+        <property name="eclipse.dash.url">https://clearlydefined.io/definitions/maven/mavencentral/org.apache.commons/commons-lang3/3.12.0</property>
+      </properties>
+    </component>
+    <component type="library">
+      <name>guava</name>
+      <version>33.0.0-jre</version>
+      <licenses>
+        <license>
+          <id>Apache-2.0 AND CC0-1.0</id>
+        </license>
+      </licenses>
+      <purl>pkg:maven/com.google.guava/guava@33.0.0-jre</purl>
+      <properties>
+        <property name="eclipse.dash.status">approved</property>
+        <property name="eclipse.dash.url">https://gitlab.eclipse.org/eclipsefdn/emo-team/iplab/-/issues/12173</property>
+      </properties>
+    </component>
+  </components>
+</bom>

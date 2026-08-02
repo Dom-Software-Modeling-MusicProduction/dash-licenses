@@ -1,0 +1,84 @@
+{
+  "bomFormat" : "CycloneDX",
+  "specVersion" : "1.4",
+  "version" : 1,
+  "metadata" : {
+    "timestamp" : "2026-08-02T01:47:50Z",
+    "component" : {
+      "type" : "application",
+      "name" : "sample-app",
+      "version" : "1.0.0"
+    }
+  },
+  "components" : [
+    {
+      "type" : "library",
+      "name" : "slf4j-api",
+      "version" : "1.7.32",
+      "licenses" : [
+        {
+          "license" : {
+            "id" : "MIT"
+          }
+        }
+      ],
+      "purl" : "pkg:maven/org.slf4j/slf4j-api@1.7.32",
+      "properties" : [
+        {
+          "name" : "eclipse.dash.status",
+          "value" : "approved"
+        },
+        {
+          "name" : "eclipse.dash.url",
+          "value" : "https://dev.eclipse.org/ipzilla/show_bug.cgi?id=13368"
+        }
+      ]
+    },
+    {
+      "type" : "library",
+      "name" : "commons-lang3",
+      "version" : "3.12.0",
+      "licenses" : [
+        {
+          "license" : {
+            "id" : "Apache-2.0"
+          }
+        }
+      ],
+      "purl" : "pkg:maven/org.apache.commons/commons-lang3@3.12.0",
+      "properties" : [
+        {
+          "name" : "eclipse.dash.status",
+          "value" : "approved"
+        },
+        {
+          "name" : "eclipse.dash.url",
+          "value" : "https://clearlydefined.io/definitions/maven/mavencentral/org.apache.commons/commons-lang3/3.12.0"
+        }
+      ]
+    },
+    {
+      "type" : "library",
+      "name" : "guava",
+      "version" : "33.0.0-jre",
+      "licenses" : [
+        {
+          "license" : {
+            "id" : "Apache-2.0 AND CC0-1.0"
+          }
+        }
+      ],
+      "purl" : "pkg:maven/com.google.guava/guava@33.0.0-jre",
+      "properties" : [
+        {
+          "name" : "eclipse.dash.status",
+          "value" : "approved"
+        },
+        {
+          "name" : "eclipse.dash.url",
+          "value" : "https://gitlab.eclipse.org/eclipsefdn/emo-team/iplab/-/issues/12173"
+        }
+      ]
+    }
+  ]
+}

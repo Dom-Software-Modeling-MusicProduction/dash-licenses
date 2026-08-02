@@ -15,7 +15,9 @@ import java.io.File;
 import java.util.Arrays;
 import java.util.stream.Collectors;
 
-import org.eclipse.dash.licenses.cli.SbomFileReader;
+import org.eclipse.dash.licenses.cli.CycloneDXSbomReader;
+import org.eclipse.dash.licenses.cli.IDependencyListReader;
+import org.eclipse.dash.licenses.cli.SpdxSbomReader;
 import org.junit.jupiter.api.Test;
 
 class SbomFileReaderTests {
@@ -28,13 +30,21 @@ class SbomFileReaderTests {
     private static final String SLF4J_CYCLONEDX_YAML = "/slf4j-test-cyclonedx.yaml";
     private static final String SLF4J_SPDX_YAML = "/slf4j-test.spdx.yaml";
 
+    // The reader chain Main uses: try CycloneDX, then SPDX.
+    private static IDependencyListReader readerFor(File file) {
+        IDependencyListReader reader = CycloneDXSbomReader.forFile(file);
+        if (reader == null) {
+            reader = SpdxSbomReader.forFile(file);
+        }
+        return reader;
+    }
+
     @Test 
     void testJsonFormat() throws Exception {
         var input = new File(this.getClass().getResource(AFS_CYCLONEDX_JSON).toURI());
-        //finds the test file on the classpath using the constant path and getResource, then converts it to a URI, then wraps it up as a File 
-        //object to be passed through to SbomFileReader
-        SbomFileReader reader = new SbomFileReader(input);
-        //creates a new SbomFileReader pointing to this file
+        // resolve the test resource on the classpath to a File
+        IDependencyListReader reader = readerFor(input);
+        // pick the reader for this file (CycloneDX, then SPDX)
         var expected = Arrays.asList(new String[] {
                 "maven/mavencentral/org.eclipse.serializer/afs/1.0.0",
                 "maven/mavencentral/org.eclipse.serializer/base/1.0.0",
@@ -50,7 +60,7 @@ class SbomFileReaderTests {
     @Test
     void testXmlFormat() throws Exception {
         var input = new File(this.getClass().getResource(CACHE_PARENT_CYCLONEDX_XML).toURI());
-        SbomFileReader reader = new SbomFileReader(input);
+        IDependencyListReader reader = readerFor(input);
         var expected = Arrays.asList(new String[] {
                 "maven/mavencentral/org.eclipse.store/cache-parent/1.1.0"
         });
@@ -61,7 +71,7 @@ class SbomFileReaderTests {
     @Test
     void testRdfFormat() throws Exception {
         var input = new File(this.getClass().getResource(SLF4J_SPDX_RDF).toURI());
-        SbomFileReader reader = new SbomFileReader(input);
+        IDependencyListReader reader = readerFor(input);
         var expected = Arrays.asList(new String[] {
                 "maven/mavencentral/org.slf4j/slf4j-api/1.7.32"
         });
@@ -71,7 +81,7 @@ class SbomFileReaderTests {
     @Test
     void testSpdxJsonFormat() throws Exception {
         var input = new File(this.getClass().getResource(SLF4J_SPDX_JSON).toURI());
-        SbomFileReader reader = new SbomFileReader(input);
+        IDependencyListReader reader = readerFor(input);
         var expected = Arrays.asList(new String[] {
                 "maven/mavencentral/org.slf4j/slf4j-api/1.7.32"
         });
@@ -81,7 +91,7 @@ class SbomFileReaderTests {
     @Test
     void testSpdxTagValueFormat() throws Exception {
         var input = new File(this.getClass().getResource(SLF4J_SPDX_TAG_VALUE).toURI());
-        SbomFileReader reader = new SbomFileReader(input);
+        IDependencyListReader reader = readerFor(input);
         var expected = Arrays.asList(new String[] {
                 "maven/mavencentral/org.slf4j/slf4j-api/1.7.32"
         });
@@ -91,7 +101,7 @@ class SbomFileReaderTests {
     @Test
     void testCycloneDxYamlFormat() throws Exception {
         var input = new File(this.getClass().getResource(SLF4J_CYCLONEDX_YAML).toURI());
-        SbomFileReader reader = new SbomFileReader(input);
+        IDependencyListReader reader = readerFor(input);
         var expected = Arrays.asList(new String[] {
                 "maven/mavencentral/org.slf4j/slf4j-api/1.7.32"
         });
@@ -101,7 +111,7 @@ class SbomFileReaderTests {
     @Test
     void testSpdxYamlFormat() throws Exception {
         var input = new File(this.getClass().getResource(SLF4J_SPDX_YAML).toURI());
-        SbomFileReader reader = new SbomFileReader(input);
+        IDependencyListReader reader = readerFor(input);
         var expected = Arrays.asList(new String[] {
                 "maven/mavencentral/org.slf4j/slf4j-api/1.7.32"
         });

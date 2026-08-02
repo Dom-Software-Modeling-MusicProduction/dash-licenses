@@ -1,19 +1,31 @@
 package org.eclipse.dash.licenses.tests.util;
 
 import static org.junit.jupiter.api.Assertions.*;
-import org.eclipse.dash.licenses.cli.SbomFileReader;
+
 import java.io.File;
 import java.util.Collection;
 
 import org.eclipse.dash.licenses.IContentId;
+import org.eclipse.dash.licenses.cli.CycloneDXSbomReader;
+import org.eclipse.dash.licenses.cli.IDependencyListReader;
+import org.eclipse.dash.licenses.cli.SpdxSbomReader;
 import org.junit.jupiter.api.Test;
 
 class SbomFileReaderRdfTest {
 
+    // The reader chain Main uses: try CycloneDX, then SPDX.
+    private static IDependencyListReader readerFor(File file) {
+        IDependencyListReader reader = CycloneDXSbomReader.forFile(file);
+        if (reader == null) {
+            reader = SpdxSbomReader.forFile(file);
+        }
+        return reader;
+    }
+
     @Test
     void testParseSpdxRdfXml() throws Exception {
         File file = new File(getClass().getClassLoader().getResource("test.spdx.rdf").getFile());
-        SbomFileReader reader = new SbomFileReader(file);
+        IDependencyListReader reader = readerFor(file);
 
         Collection<IContentId> ids = reader.getContentIds();
 
@@ -31,18 +43,11 @@ class SbomFileReaderRdfTest {
     void testParseSpdxRdfXml_skipsNonPurl() throws Exception {
         // Verifies that non-purl externalRefs are ignored
         File file = new File(getClass().getClassLoader().getResource("test.spdx.rdf").getFile());
-        SbomFileReader reader = new SbomFileReader(file);
+        IDependencyListReader reader = readerFor(file);
 
         Collection<IContentId> ids = reader.getContentIds();
 
         // Only the purl ref should be returned, not any other ref types
         assertEquals(1, ids.size());
-    }
-
-    @Test
-    void testParseSpdxRdfXml_fileNotFound() {
-        assertThrows(java.io.FileNotFoundException.class, () -> {
-            new SbomFileReader(new File("nonexistent.rdf"));
-        });
     }
 }

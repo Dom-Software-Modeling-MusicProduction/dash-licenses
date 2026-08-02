@@ -1,3 +1,12 @@
+/*************************************************************************
+ * Copyright (c) 2026 The Eclipse Foundation and others.
+ *
+ * This program and the accompanying materials are made available under
+ * the terms of the Eclipse Public License 2.0 which accompanies this
+ * distribution, and is available at https://www.eclipse.org/legal/epl-2.0
+ *
+ * SPDX-License-Identifier: EPL-2.0
+ *************************************************************************/
 package org.eclipse.dash.licenses.cli;
 
 import java.io.File;
@@ -7,8 +16,8 @@ import java.util.Collection;
 import java.util.List;
 
 import org.cyclonedx.exception.ParseException;
+import org.cyclonedx.model.Bom;
 import org.cyclonedx.parsers.JsonParser;
-import org.cyclonedx.parsers.Parser;
 import org.cyclonedx.parsers.XmlParser;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -19,117 +28,132 @@ import org.eclipse.dash.licenses.IContentId;
 import org.eclipse.dash.licenses.PackageUrlIdParser;
 
 /**
- * Reads CycloneDX SBOMs (JSON, XML, and YAML) and extracts the package URLs of
- * every component as IContentIds. The specific variant is chosen from the
- * file extension; callers that need to distinguish CycloneDX from SPDX up front
- * should do so before delegating here
+ * Reads CycloneDX SBOMs (JSON, XML, YAML) and extracts the package URLs of every
+ * component as {@link IContentId}s.
+ *
+ * Created via the {@link #forFile(File)} factory. It returns a reader if the file
+ * is a CycloneDX SBOM it can handle, or {@code null} otherwise (including SPDX
+ * files), so callers can fall through and try the SPDX reader next.
+ *
+ * For JSON/XML the file is parsed once, up front, into a {@link Bom} that is kept
+ * and exposed via {@link #getSbom()} so the writer can reuse it. YAML has no
+ * CycloneDX Bom parser, so it is walked as a tree instead and {@link #getSbom()}
+ * returns {@code null}.
  */
+public class CycloneDXSbomReader implements IDependencyListReader {
 
-//the "implements IDependencyListReader" part is important. It's a promise that this
-//class will have a getContentIds method so it can be used anywhere the old one was 
-//used. 
-public class CycloneDXSbomReader implements IDependencyListReader { 
+    // Exactly one of these is set: sbom for JSON/XML, yamlFile for YAML.
+    private final Bom sbom;
+    private final File yamlFile;
 
-    //assign a piece of data that's private to the class and it's final, which means it's
-    //value can never be reassigned.
-    private final File file;
-
-    //create a static object (belonging to the class as a whole, not each individual object) so
-    //there is one shared PURL_Parser for the entire program, no matter how many reader objects
-    //get created. 
     private static final PackageUrlIdParser PURL_PARSER = new PackageUrlIdParser();
+    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
+    private static final ObjectMapper YAML_MAPPER = new ObjectMapper(new YAMLFactory());
 
-    public CycloneDXSbomReader(File file) {
-        this.file = file;
+    private CycloneDXSbomReader(Bom sbom) {
+        this.sbom = sbom;
+        this.yamlFile = null;
+    }
+
+    private CycloneDXSbomReader(File yamlFile) {
+        this.sbom = null;
+        this.yamlFile = yamlFile;
+    }
+
+    public static CycloneDXSbomReader forFile(File file) {
+        String name = file.getName().toLowerCase();
+
+        if (name.endsWith(".json")) {
+            // The CycloneDX parser will happily "parse" SPDX JSON into an empty Bom,
+            // so reject SPDX explicitly and let the SPDX reader take it.
+            if (isSpdx(file, JSON_MAPPER)) {
+                return null;
+            }
+            try {
+                return new CycloneDXSbomReader(new JsonParser().parse(file));
+            } catch (ParseException e) {
+                return null;
+            }
+        }
+
+        // plain .xml is CycloneDX; ".rdf.xml" is SPDX RDF and is not ours
+        if (name.endsWith(".xml") && !name.endsWith(".rdf.xml")) {
+            try {
+                return new CycloneDXSbomReader(new XmlParser().parse(file));
+            } catch (ParseException e) {
+                return null;
+            }
+        }
+
+        if (name.endsWith(".yaml") || name.endsWith(".yml")) {
+            if (isSpdx(file, YAML_MAPPER)) {
+                return null;
+            }
+            return new CycloneDXSbomReader(file);
+        }
+
+        return null;
+    }
+
+    // Peek for the SPDX-only "spdxVersion" field so SPDX JSON/YAML is not claimed here.
+    private static boolean isSpdx(File file, ObjectMapper mapper) {
+        try {
+            JsonNode root = mapper.readTree(file);
+            return root.has("spdxVersion");
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     @Override
     public Collection<IContentId> getContentIds() {
-        String name = file.getName().toLowerCase();
-        if (name.endsWith(".json")) {
-            return parse(file, new JsonParser());
+        // YAML: walk the tree (no Bom available)
+        if (sbom == null) {
+            return fromYamlTree(yamlFile);
         }
-        if (name.endsWith(".xml")) {
-            return parse(file, new XmlParser());
+
+        // JSON/XML: read from the parsed Bom
+        List<IContentId> results = new ArrayList<>();
+        if (sbom.getMetadata() != null && sbom.getMetadata().getComponent() != null) {
+            // the metadata component (e.g. an "application") often has no purl — guard against null
+            addPurl(results, sbom.getMetadata().getComponent().getPurl());
         }
-        if (name.endsWith(".yaml") || name.endsWith(".yml")) {
-            return parseYaml(file);
+        if (sbom.getComponents() != null) {
+            for (var component : sbom.getComponents()) {
+                addPurl(results, component.getPurl());
+            }
         }
-        throw new RuntimeException("Unsupported CycloneDX SBOM format for file: " + file.getPath());
+        return results;
     }
 
-    // Shared path for the CycloneDX library parsers (JSON and XML). Includes the
-    // top-level metadata.component (the SBOM's own subject) plus every component.
-
-    //takes two inputs: the file and a Parser. Parser is the general type that both JsonParser and XmlParser
-    //count as, so the method can be used to server both cases.
-    private List<IContentId> parse(File file, Parser parser) { 
+    private List<IContentId> fromYamlTree(File file) {
+        List<IContentId> results = new ArrayList<>();
         try {
-            //call the given parser's .parse(file) to read the SBOM. "var" is a shorthand: instead of writing
-            //the full type name, var tells Java to figure out the type automatically.
-            var sbom = parser.parse(file);
-
-            //create an empty list called results to collect the ids we find. List<IContentId> on the left is the
-            //type; new ArrayList<>() on the right side is the actual empty list object. <> so you don't repeat
-            //IContentId.
-            List<IContentId> results = new ArrayList<>();
-            if (sbom.getMetadata() != null && sbom.getMetadata().getComponent() != null) {
-                //sbom.getMetadata().getComponent().getPurl() chains calls to dig out that component's purl
-                //string, then PURL_PARSER.parseId(...) converts it into an IContentId (or null if the purl is
-                //malformed)
-                IContentId id = PURL_PARSER.parseId(sbom.getMetadata().getComponent().getPurl());
-                if (id != null) {
-                    results.add(id);
-                }
-            }
-            //only proceed if there's actually a component list
-            if (sbom.getComponents() != null) {
-                //loop over each component - grab it's purl, parse it into an id and if the id isn't null - add it
-                //to results.
-                for (var component : sbom.getComponents()) {
-                    IContentId id = PURL_PARSER.parseId(component.getPurl());
-                    if (id != null) {
-                        results.add(id);
-                    }
-                }
-            }
-            return results;
-        } catch (ParseException e) {
-            e.printStackTrace();
-        }
-        //if successful, return the new ArrayList<>()
-        return new ArrayList<>();
-    }
-
-    // The CycloneDX library has no YAML parser, so walk the tree with Jackson.
-    private List<IContentId> parseYaml(File file) {
-        try {
-            //create a new Jackson reader configured to interpret YAML (the YAML Factory is what teaches the general
-            //ObjectMapper to speak to YAML specifically).
-            ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
-            
-            //read the whole file into a tree of JsonNodes. Root is the top of the tree.
-            JsonNode root = yamlMapper.readTree(file);
-
-            List<IContentId> results = new ArrayList<>();
-
-            //root.path("components") -> navigate into the tree to the "components" section (the list of components in the
-            //YAML). .path(fieldName: "components") means go to the field with this name.
+            JsonNode root = YAML_MAPPER.readTree(file);
             for (JsonNode component : root.path("components")) {
-             
-                //component.path("purl") navigates into this component node to it's "purl" field. 
-                String purl = component.path("purl").asText(null);
-                if (purl != null) {
-                    IContentId id = PURL_PARSER.parseId(purl);
-                    if (id != null) {
-                        results.add(id);
-                    }
-                }
+                addPurl(results, component.path("purl").asText(null));
             }
-            return results;
         } catch (IOException e) {
             e.printStackTrace();
         }
-        return new ArrayList<>();
+        return results;
+    }
+
+    private void addPurl(List<IContentId> results, String purl) {
+        if (purl == null) {
+            return;
+        }
+        IContentId id = PURL_PARSER.parseId(purl);
+        if (id != null) {
+            results.add(id);
+        }
+    }
+
+    /**
+     * @return the parsed CycloneDX Bom for JSON/XML input, or {@code null} for YAML
+     *         (which has no Bom). Lets the writer reuse the already-parsed document.
+     */
+    public Bom getSbom() {
+        return sbom;
     }
 }

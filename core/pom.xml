@@ -141,6 +141,15 @@
 			<artifactId>jackson-dataformat-yaml</artifactId>
 			<version>2.21.3</version>
 		</dependency>
+		<!-- cyclonedx-core-java pulls in jackson-dataformat-xml 2.17.1, which is
+		     incompatible with the pinned jackson-databind 2.21 (throws
+		     NoSuchFieldError on _anyGetterWriter when generating CycloneDX XML).
+		     Pin it to match the other Jackson modules. -->
+		<dependency>
+			<groupId>com.fasterxml.jackson.dataformat</groupId>
+			<artifactId>jackson-dataformat-xml</artifactId>
+			<version>2.21.3</version>
+		</dependency>
 		<dependency>
 			<groupId>com.fasterxml.jackson.module</groupId>
 			<artifactId>jackson-module-jakarta-xmlbind-annotations</artifactId>
