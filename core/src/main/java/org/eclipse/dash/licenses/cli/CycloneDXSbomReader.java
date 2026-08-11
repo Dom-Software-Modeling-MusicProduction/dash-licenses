@@ -47,7 +47,6 @@ public class CycloneDXSbomReader implements IDependencyListReader {
     private final File yamlFile;
 
     private static final PackageUrlIdParser PURL_PARSER = new PackageUrlIdParser();
-    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
     private static final ObjectMapper YAML_MAPPER = new ObjectMapper(new YAMLFactory());
 
     private CycloneDXSbomReader(Bom sbom) {
@@ -64,13 +63,9 @@ public class CycloneDXSbomReader implements IDependencyListReader {
         String name = file.getName().toLowerCase();
 
         if (name.endsWith(".json")) {
-            // The CycloneDX parser will happily "parse" SPDX JSON into an empty Bom,
-            // so reject SPDX explicitly and let the SPDX reader take it.
-            if (isSpdx(file, JSON_MAPPER)) {
-                return null;
-            }
             try {
-                return new CycloneDXSbomReader(new JsonParser().parse(file));
+                Bom bom = new JsonParser().parse(file);
+                return isValidBom(bom) ? new CycloneDXSbomReader(bom) : null;
             } catch (ParseException e) {
                 return null;
             }
@@ -79,27 +74,31 @@ public class CycloneDXSbomReader implements IDependencyListReader {
         // plain .xml is CycloneDX; ".rdf.xml" is SPDX RDF and is not ours
         if (name.endsWith(".xml") && !name.endsWith(".rdf.xml")) {
             try {
-                return new CycloneDXSbomReader(new XmlParser().parse(file));
+                Bom bom = new XmlParser().parse(file);
+                return isValidBom(bom) ? new CycloneDXSbomReader(bom) : null;
             } catch (ParseException e) {
                 return null;
             }
         }
 
         if (name.endsWith(".yaml") || name.endsWith(".yml")) {
-            if (isSpdx(file, YAML_MAPPER)) {
-                return null;
-            }
-            return new CycloneDXSbomReader(file);
+            return isValidYamlBom(file) ? new CycloneDXSbomReader(file) : null;
         }
 
         return null;
     }
 
-    // Peek for the SPDX-only "spdxVersion" field so SPDX JSON/YAML is not claimed here.
-    private static boolean isSpdx(File file, ObjectMapper mapper) {
+    private static boolean isValidBom(Bom bom) {
+        return bom != null
+                && bom.getSpecVersion() != null
+                && !bom.getSpecVersion().isBlank();
+    }
+
+    private static boolean isValidYamlBom(File file) {
         try {
-            JsonNode root = mapper.readTree(file);
-            return root.has("spdxVersion");
+            JsonNode root = YAML_MAPPER.readTree(file);
+            return "CycloneDX".equalsIgnoreCase(root.path("bomFormat").asText())
+                    && !root.path("specVersion").asText().isBlank();
         } catch (IOException e) {
             return false;
         }
